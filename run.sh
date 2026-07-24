@@ -3,7 +3,17 @@ set -xue
 
 # QEMU file path
 QEMU=qemu-system-riscv32
+
+# Path to clang and compiler flags
+CC=/usr/bin/clang
+CFLAGS="-std=c11 -O2 -g3 -Wall -Wextra --target=riscv32-unknown-elf -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib"
+
+# Build the kernel
+$CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf \
+    kernel.c
+
 # start QEMU
 # can check other available machines with -machine '?'
 # --no-reboot stops emulator without rebooting if vm crashes (useful for debugging)
-$QEMU -machine virt -bios default -nographic -serial mon:stdio --no-reboot
+$QEMU -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
+    -kernel kernel.elf

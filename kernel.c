@@ -1,4 +1,5 @@
 #include "kernel.h"
+#include "common.h"
 
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
@@ -39,8 +40,7 @@ void put_char(char c) {
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
-    const char* s = "\n\nBeat the odds. Go Beyond!\n";
-    for(int i = 0; s[i] != '\0'; i++) {put_char(s[i]);}
+    printf("\n\nBeat the odds. Go Beyond!%s\n");
     for(;;) {__asm__ __volatile("wfi");}
 }
 

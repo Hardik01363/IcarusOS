@@ -10,7 +10,7 @@ CFLAGS="-std=c11 -O2 -g3 -Wall -Wextra --target=riscv32-unknown-elf -fuse-ld=lld
 
 # Build the kernel
 $CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf \
-    kernel.c
+    kernel.c common.c
 
 # start QEMU
 # can check other available machines with -machine '?'

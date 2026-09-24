@@ -1,6 +1,6 @@
 #pragma once
 
-//__builtin_ provided by clang compiler
+//__builtin_'s provided by clang compiler
 #define va_list __builtin_va_list
 #define va_start __builtin_va_start
 #define va_end __builtin_va_end

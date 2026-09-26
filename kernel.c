@@ -35,7 +35,7 @@ void put_char(char c) {
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
 
-    printf("\n\nBeat the odds. Go Beyond!%s\n");
+    printf("Beat the odds. Go Beyond!\n");
     PANIC("booted!");
     printf("this shouldnt be printed.\n");
     for(;;) {__asm__ __volatile("wfi");}

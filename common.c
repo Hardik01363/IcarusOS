@@ -74,8 +74,8 @@ void* memset(void* buff, char c, size_t n) {
 char *strcpy(char *dst, const char *src) {
     char *p = dst;
     while(*src) {*p++ = *src++;} //we can modify src without worry as what we are modifying is a copy of the pointer passed into the function, not the actual pointer pointing to the source
-    *d = '\0';
-    retutn dst;
+    *p = '\0';
+    return dst;
 }
 
 // 0 if equal, > 0 if s1 > s2, < 0 if s1 < s2

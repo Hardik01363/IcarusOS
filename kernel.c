@@ -7,12 +7,6 @@ typedef uint32_t size_t;
 
 extern char __bss[], __bss_end[], __stack_top[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
 
-void* memset(void* buff, char c, size_t n) {
-    uint8_t* p = (uint8_t*)buff;
-    while(n--) {*p++ = c;}
-    return buff;
-}
-
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
 struct sbi_ret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid) {
     register long a0 __asm__("a0") = arg0;

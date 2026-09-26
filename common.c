@@ -57,3 +57,32 @@ void printf(const char* fmtd_str, ...) {
 end:
     va_end(vargs);
 }
+
+void *memcpy(void *dst, const void *src, size_t n) {
+    const uint8_t *p = (const uint8_t *) src; //in C, ptr declarations are read from right to left.
+    uint8_t *q = (uint8_t *) dst;
+    while(n--) {*q = *p; p++; q++;}
+    return dst;
+}
+
+void* memset(void* buff, char c, size_t n) {
+    uint8_t* p = (uint8_t*)buff;
+    while(n--) {*p++ = c;}
+    return buff;
+}
+
+char *strcpy(char *dst, const char *src) {
+    char *p = dst;
+    while(*src) {*p++ = *src++;} //we can modify src without worry as what we are modifying is a copy of the pointer passed into the function, not the actual pointer pointing to the source
+    *d = '\0';
+    retutn dst;
+}
+
+// 0 if equal, > 0 if s1 > s2, < 0 if s1 < s2
+int strcmp(const char *s1, const char *s2) {
+    while(*s1 && *s2) {
+        if(*s1 != *s2) {break;}
+        s1++; s2++;
+    }
+    return *(unsigned char *)s1 - *(unsigned char *)s2; //casting to unsigned char *  to follow POSIX specifications
+}

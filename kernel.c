@@ -211,39 +211,6 @@ struct process *assign_pcb(uint32_t pc) {
     return unused_proc;
 }
 
-//delay(), a_entry(), b_entry(), proc_a, proc_b, num_context_switches are made solely to test the context switching mechanism (not an integral part of the OS)
-void delay(void) {
-    for (int i = 0; i < 30000000; i++) {
-        __asm__ __volatile__("nop"); // nop is an instruction that does nothing
-    }
-}
-
-struct process *proc_a;
-struct process *proc_b;
-int num_context_switches = 0;
-
-void a_entry(void) {
-    printf("starting process A\n");
-    while (1) {
-        printf("Running Process A\n");
-        switch_context(&proc_a->sp, &proc_b->sp);
-        if(num_context_switches == 30) {break;}
-        num_context_switches++;
-        delay();
-    }
-}
-
-void b_entry(void) {
-    printf("starting process B\n");
-    while (1) {
-        printf("Running Process B\n");
-        switch_context(&proc_b->sp, &proc_a->sp);
-        if(num_context_switches == 30) {break;}
-        num_context_switches++;
-        delay();
-    }
-}
-
 struct process *currently_running_proc;
 struct process *idle_proc;
 
@@ -268,11 +235,50 @@ void yield(void) {
     switch_context(&prev_to_run->sp, &next_to_run->sp);
 }
 
+//delay(), a_entry(), b_entry(), proc_a, proc_b, num_context_switches are made solely to test the context switching mechanism (not an integral part of the OS)
+void delay(void) {
+    for (int i = 0; i < 30000000; i++) {
+        __asm__ __volatile__("nop"); // nop is an instruction that does nothing
+    }
+}
+
+struct process *proc_a;
+struct process *proc_b;
+int num_context_switches = 0;
+
+void a_entry(void) {
+    printf("starting process A\n");
+    while (1) {
+        printf("Running Process A\n");
+        if(num_context_switches >= 30) {break;}
+        num_context_switches++;
+        delay();
+        yield();
+    }
+}
+
+void b_entry(void) {
+    printf("starting process B\n");
+    while (1) {
+        printf("Running Process B\n");
+        if(num_context_switches >= 30) {break;}
+        num_context_switches++;
+        delay();
+        yield();
+    }
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
+    printf("\n\n");
     
     //telling the CPU where the exception handler is located
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
+
+    //creating an initial idle process with pid 0. this is the root process of IcarusOS
+    idle_proc = assign_pcb((uint32_t) NULL);
+    idle_proc->pid = 0;
+    currently_running_proc = idle_proc;
 
     //testing printf()
     printf("Beat the odds. Go Beyond!\n");
@@ -286,7 +292,8 @@ void kernel_main(void) {
     //testing context switching
     proc_a = assign_pcb((uint32_t) a_entry);
     proc_b = assign_pcb((uint32_t) b_entry);
-    a_entry();
+    yield();
+    PANIC("switched to idle process");
 
     //testing trap/exception handler and kernel PANIC
     //triggering an exception. testing if exception works in turn also tests if PANIC works correctly

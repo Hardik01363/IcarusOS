@@ -6,12 +6,13 @@ typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
 typedef unsigned long long uint64_t;
 typedef uint32_t size_t;
-typedef uint32_t paddr_t;
-typedef uint32_t vaddr_t;
+typedef uint32_t paddr_t; //physical address
+typedef uint32_t vaddr_t; //virual address
 
 #define true 1
 #define false 0
 #define NULL ((void *) 0)
+#define PAGE_SIZE 4096
 //__builtin_'s provided by clang compiler, defined in C standard library's <stdarg.h>.
 //we can use compiler builtins without relying on standard library :)
 #define align_up(value, align)   __builtin_align_up(value, align)

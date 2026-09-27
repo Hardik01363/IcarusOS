@@ -5,7 +5,7 @@ typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef uint32_t size_t;
 
-extern char __bss[], __bss_end[], __stack_top[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
+extern char __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
 
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
 struct sbi_ret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid) {
@@ -30,6 +30,18 @@ struct sbi_ret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, l
 
 void put_char(char c) {
     sbi_call(c, 0,0,0,0,0,0, 1);
+}
+
+//the memory allocator will allocate contiguous memory in 4KB size pages/units. 
+paddr_t palloc(uint32_t n) {
+    static paddr_t paddr_ptr = (paddr_t) __free_ram_start;
+    paddr_t start_paddr = paddr_ptr;
+    paddr_ptr += n * PAGE_SIZE;
+
+    if(paddr_ptr > (paddr_t) __free_ram_end) {PANIC("out of memory");}
+
+    memset((void *) start_paddr, 0, n * PAGE_SIZE);
+    return start_paddr;
 }
 
 //entry point if exception handler (to be registered in stvec register)
@@ -120,13 +132,23 @@ void handle_trap(struct trap_frame *f) {
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
-
+    
+    //testing printf()
     printf("Beat the odds. Go Beyond!\n");
-    //telling the CPU ehre the exception handler is located
+    
+    //testing memory allocator
+    paddr_t mem_region1 = palloc(2);
+    paddr_t mem_region2 = palloc(1);
+    printf("palloc test; mem_region1 starts at address paddr=%x\n", mem_region1);
+    printf("palloc test; mem_region2 starts at address paddr=%x\n", mem_region2);
+    
+    //telling the CPU where the exception handler is located
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
-    //triggering an exception
+    //testing trap/exception handler and kernel PANIC
+    //triggering an exception. testing if exception works in turn also tests if PANIC works correctly
     __asm__ __volatile__("unimp"); //unimp is the unimplemented instruction (signifies an unimplemented operation) that triggers a trap in our kernel. its a pseudo instruction in RISC-V translating into: csrrw x0, cycle, x0. triggers an exception since cycle is a read-only register but we aretrying to write to it. 
-    printf("this shouldnt be printed.\n");
+    printf("this shouldnt be printed if PANIC works correctly\n");
+    
     for(;;) {__asm__ __volatile("wfi");}
 }
 

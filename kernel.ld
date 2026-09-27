@@ -26,4 +26,10 @@ SECTIONS {
     . = ALIGN(4); /*aligns current address with a 4-byte boundary*/
     . += 128 * 1024; /*advance current address by 128KB*/
     __stack_top = .;
+
+    /*memory regions managed by our memory allocator*/
+    . = ALIGN(4096);
+    __free_ram_start = .; /*start of free ram space*/
+    . += 64 * 1024 * 1024; /*64MB of free ram space is being given to our memory allocator to manage*/
+    __free_ram_end = .; /*end of free ram space*/
 }

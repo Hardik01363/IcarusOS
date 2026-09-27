@@ -175,12 +175,12 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
 
 struct process procs[PROCS_MAX]; //all the process control structures of our kernel
 
-struct proces *create_proc(uint32_t pc) {
+struct process *assign_pcb(uint32_t pc) {
     //find and return an unused PCB
     struct process *unused_proc = NULL;
     int i;
     for(i = 0; i < PROCS_MAX; i++) {
-        if(procs[i].state = PROC_UNUSED) {
+        if(procs[i].state == PROC_UNUSED) {
             unused_proc = &procs[i];
             break;
         }
@@ -211,9 +211,45 @@ struct proces *create_proc(uint32_t pc) {
     return unused_proc;
 }
 
+//delay(), a_entry(), b_entry(), proc_a, proc_b, num_context_switches are made solely to test the context switching mechanism (not an integral part of the OS)
+void delay(void) {
+    for (int i = 0; i < 30000000; i++) {
+        __asm__ __volatile__("nop"); // nop is an instruction that does nothing
+    }
+}
+
+struct process *proc_a;
+struct process *proc_b;
+int num_context_switches = 0;
+
+void a_entry(void) {
+    printf("starting process A\n");
+    while (1) {
+        printf("Running Process A\n");
+        switch_context(&proc_a->sp, &proc_b->sp);
+        if(num_context_switches == 30) {break;}
+        num_context_switches++;
+        delay();
+    }
+}
+
+void b_entry(void) {
+    printf("starting process B\n");
+    while (1) {
+        printf("Running Process B\n");
+        switch_context(&proc_b->sp, &proc_a->sp);
+        if(num_context_switches == 30) {break;}
+        num_context_switches++;
+        delay();
+    }
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
     
+    //telling the CPU where the exception handler is located
+    WRITE_CSR(stvec, (uint32_t) kernel_entry);
+
     //testing printf()
     printf("Beat the odds. Go Beyond!\n");
     
@@ -223,8 +259,11 @@ void kernel_main(void) {
     printf("palloc test; mem_region1 starts at address paddr=%x\n", mem_region1);
     printf("palloc test; mem_region2 starts at address paddr=%x\n", mem_region2);
     
-    //telling the CPU where the exception handler is located
-    WRITE_CSR(stvec, (uint32_t) kernel_entry);
+    //testing context switching
+    proc_a = assign_pcb((uint32_t) a_entry);
+    proc_b = assign_pcb((uint32_t) b_entry);
+    a_entry();
+
     //testing trap/exception handler and kernel PANIC
     //triggering an exception. testing if exception works in turn also tests if PANIC works correctly
     __asm__ __volatile__("unimp"); //unimp is the unimplemented instruction (signifies an unimplemented operation) that triggers a trap in our kernel. its a pseudo instruction in RISC-V translating into: csrrw x0, cycle, x0. triggers an exception since cycle is a read-only register but we aretrying to write to it. 

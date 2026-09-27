@@ -244,6 +244,30 @@ void b_entry(void) {
     }
 }
 
+struct process *currently_running_proc;
+struct process *idle_proc;
+
+//optimistic scheduler to context switch when a process yields the CPU (calls yield()). works slightly inclined to round-robin principles
+void yield(void) {
+    //searching for a runnable process. since we have at max 8 processes, we dont need to maintain a separate list of available to run processes, we can just scan the whole process list and check running/unused status
+    struct process *next_to_run = idle_proc;
+    for(int i = 0; i < PROCS_MAX; i++) {
+        struct process *proc = &procs[(currently_running_proc->pid + i) % PROCS_MAX];
+        if(proc->state == PROC_RUNNABLE && proc->pid > 0) {
+            next_to_run = proc;
+            break;
+        }
+    }
+
+    //if no process runnable other than current one, dont context switch, just run it
+    if(next_to_run == currently_running_proc) {return;}
+
+    //else, context switch
+    struct process *prev_to_run = currently_running_proc;
+    currently_running_proc = next_to_run;
+    switch_context(&prev_to_run->sp, &next_to_run->sp);
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
     

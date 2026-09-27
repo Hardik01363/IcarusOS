@@ -36,3 +36,17 @@ struct trap_frame {
         uint32_t __tmp = (value);                                              \
         __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
     } while (0)
+
+//Process Control Block (PCB)
+//we give a kernel stack to each process, instead of having a single kernel stack for the CPU
+#define PROCS_MAX 8
+#define PROC_UNUSED 0
+#define PROC_RUNNABLE 1
+#define STACK_SIZE 8192 //8KB stack for each process
+
+struct process {
+    int pid;
+    int state; //unused(0) or runnable(1)
+    vaddr_t sp;
+    uint8_t stack[STACK_SIZE]; //saves process state when context switching or handling trap/syscall
+}

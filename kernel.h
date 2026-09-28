@@ -50,3 +50,11 @@ struct process {
     vaddr_t sp;
     uint8_t stack[STACK_SIZE]; //saves process state when context switching or handling trap/syscall
 };
+
+//Constructing the Sv32 Page Table
+#define SATP_SV32 (1u << 31)
+#define PAGE_V    (1 << 0)   //"Valid" bit (of page table, not of OS)
+#define PAGE_R    (1 << 1)   //page is readable
+#define PAGE_W    (1 << 2)   //page is writable
+#define PAGE_X    (1 << 3)   //page is executable
+#define PAGE_U    (1 << 4)   //accessible in user mode

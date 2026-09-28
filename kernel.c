@@ -49,7 +49,9 @@ __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
-        "csrw sscratch, sp\n"
+        //retrieving kernel stack of running process from sscratch
+        "csrrw sp, sscratch, sp\n"
+
         "addi sp, sp, -4 * 31\n" // allocating space for the trap_frame struct
         "sw ra,  4 * 0(sp)\n"
         "sw gp,  4 * 1(sp)\n"
@@ -82,8 +84,13 @@ void kernel_entry(void) {
         "sw s10, 4 * 28(sp)\n"
         "sw s11, 4 * 29(sp)\n"
 
+        //retrieve and save sp when exception occurs
         "csrr a0, sscratch\n"
         "sw a0, 4 * 30(sp)\n"
+
+        //resetting the kernel stack
+        "addi a0, sp, 4 * 31\n"
+        "csrw sscratch, a0\n"
 
         "mv a0, sp\n"
         "call handle_trap\n"
@@ -228,8 +235,15 @@ void yield(void) {
 
     //if no process runnable other than current one, dont context switch, just run it
     if(next_to_run == currently_running_proc) {return;}
+    
+    //storing a pointer for the currently_running_proc to the bottom of the kernel stack in the sscratch register
+    __asm__ __volatile__(
+        "csrw sscratch, %[sscratch]\n"
+        :
+        : [sscratch] "r" ((uint32_t) &next_to_run->stack[sizeof(next_to_run->stack)])
+    );
 
-    //else, context switch
+    //context switch
     struct process *prev_to_run = currently_running_proc;
     currently_running_proc = next_to_run;
     switch_context(&prev_to_run->sp, &next_to_run->sp);
@@ -249,10 +263,9 @@ int num_context_switches = 0;
 void a_entry(void) {
     printf("starting process A\n");
     while (1) {
-        printf("Running Process A\n");
         if(num_context_switches >= 30) {break;}
         num_context_switches++;
-        delay();
+        put_char('A');
         yield();
     }
 }
@@ -260,10 +273,9 @@ void a_entry(void) {
 void b_entry(void) {
     printf("starting process B\n");
     while (1) {
-        printf("Running Process B\n");
         if(num_context_switches >= 30) {break;}
         num_context_switches++;
-        delay();
+        put_char('B');
         yield();
     }
 }

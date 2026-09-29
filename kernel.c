@@ -287,8 +287,14 @@ void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     uint32_t vpn1 = (vaddr >> 22) & 0x3ff; //0x3ff is the highest value of vpn1 (8 bits by the 2 f's, 2 bits by 3), taking & with it to convert it from 10-bit to 12-bit value
     if((table[vpn1] & PAGE_V) == 0) {
         //create 1st level page table if it doesnt exist
-
+        uint32_t pt_paddr = palloc(1);
+        table[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
     }
+
+    //setting 2nd level PT entry to map to physical page
+    uint32_t vpn0 = (vaddr >> 12) & 0x3ff;
+    uint32_t *table0 = (uint32_t *) ((table1[vpn1] >> 10) * PAGE_SIZE);
+    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
 void kernel_main(void) {

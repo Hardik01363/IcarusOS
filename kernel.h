@@ -65,3 +65,4 @@ struct process {
 #define SSTATUS_SPIE (1 << 5)
 
 #define SCAUSE_ECALL 8 //to check that if the scause of an exception is 8, it is a syscall and not an illegal use
+#define PROC_EXITED 2

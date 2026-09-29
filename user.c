@@ -19,7 +19,8 @@ int syscall(int sysno, int arg0, int arg1, int arg2) {
 }
 
 __attribute__((noreturn)) void exit(void) {
-    for(;;);
+    syscall(SYS_EXIT, 0, 0, 0);
+    for(;;); //a just in case measure (hopefully doesnt get called)
 }
 
 void put_char(char ch) {

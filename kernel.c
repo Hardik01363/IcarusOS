@@ -158,40 +158,6 @@ void kernel_entry(void) {
     );
 }
 
-void handle_syscall(struct trap_frame *f) {
-    switch (f->a3) {
-        case SYS_PUTCHAR: {
-            put_char(f->a0);
-            break;
-        }
-        case SYS_GETCHAR: {
-            while(1) {
-                long ch = get_char();
-                if(ch >= 0) {f->a0 = ch; break;}
-                yield();
-            }
-            break;
-        }
-        default: {
-            PANIC("unexpected syscall a3=%x\n", f->a3);
-        }
-    }
-}
-
-void handle_trap(struct trap_frame *f) {
-    uint32_t scause = READ_CSR(scause);
-    uint32_t stval = READ_CSR(stval);
-    uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
-    
-    if(scause == SCAUSE_ECALL) {
-        handle_syscall(f);
-        sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
-    }
-    else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
-
-    WRITE_CSR(sepc, sepc);
-}
-
 //implementing context switching
 //in RISC-V, s0-a11 are callee-saved and others (like a0) are caller-saved
 __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp) {
@@ -345,6 +311,46 @@ void delay(void) {
     for (int i = 0; i < 30000000; i++) {
         __asm__ __volatile__("nop"); // nop is an instruction that does nothing
     }
+}
+
+void handle_syscall(struct trap_frame *f) {
+    switch (f->a3) {
+        case SYS_PUTCHAR: {
+            put_char(f->a0);
+            break;
+        }
+        case SYS_GETCHAR: {
+            while(1) {
+                long ch = get_char();
+                if(ch >= 0) {f->a0 = ch; break;}
+                yield();
+            }
+            break;
+        }
+        case SYS_EXIT: { //we only mark the process as exited for simplicity. in a more practical OS, resources held by the process must also be freed
+            printf("process %d exited\n", currently_running_proc->pid);
+            currently_running_proc->state = PROC_EXITED; //a process with this state never ran by the scheduler again
+            yield();
+            PANIC("unreachable"); //just in case this process does return again
+        }
+        default: {
+            PANIC("unexpected syscall a3=%x\n", f->a3);
+        }
+    }
+}
+
+void handle_trap(struct trap_frame *f) {
+    uint32_t scause = READ_CSR(scause);
+    uint32_t stval = READ_CSR(stval);
+    uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
+    
+    if(scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
+    }
+    else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
+
+    WRITE_CSR(sepc, sepc);
 }
 
 void kernel_main(void) {

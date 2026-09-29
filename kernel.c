@@ -1,3 +1,5 @@
+//unimp is the unimplemented instruction (signifies an unimplemented operation) that triggers a trap in our kernel. its a pseudo instruction in RISC-V translating into: csrrw x0, cycle, x0. triggers an exception since cycle is a read-only register but we aretrying to write to it.
+
 #include "kernel.h"
 #include "common.h"
 
@@ -6,7 +8,7 @@ typedef unsigned int uint32_t;
 typedef uint32_t size_t;
 
 extern char __kernel_base[], __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
-extern char __binary_shell_bin_start[], __binary_shell_bin_size[]; //symbols to use the embedded raw binary in shell.bin.o
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[]; //symbols to use the embedded raw binary in shell.bin.o
 
 
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
@@ -299,36 +301,10 @@ void yield(void) {
     switch_context(&prev_to_run->sp, &next_to_run->sp);
 }
 
-//delay(), a_entry(), b_entry(), proc_a, proc_b, num_context_switches are made solely to test the context switching mechanism (not an integral part of the OS)
+//delay() is made solely to test the context switching mechanism (not an integral part of the OS)
 void delay(void) {
-    for (int i = 0; i < 900000000; i++) {
+    for (int i = 0; i < 30000000; i++) {
         __asm__ __volatile__("nop"); // nop is an instruction that does nothing
-    }
-}
-
-struct process *proc_a;
-struct process *proc_b;
-int num_context_switches = 0;
-
-void a_entry(void) {
-    printf("starting process A\n");
-    while (1) {
-        delay();
-        if(num_context_switches >= 30) {break;}
-        num_context_switches++;
-        put_char('A');
-        yield();
-    }
-}
-
-void b_entry(void) {
-    printf("starting process B\n");
-    while (1) {
-        delay();
-        if(num_context_switches >= 30) {break;}
-        num_context_switches++;
-        put_char('B');
-        yield();
     }
 }
 
@@ -340,30 +316,15 @@ void kernel_main(void) {
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
     //creating an initial idle process with pid 0. this is the root process of IcarusOS
-    idle_proc = assign_pcb((uint32_t) NULL);
+    idle_proc = create_proc(NULL, 0);
     idle_proc->pid = 0;
     currently_running_proc = idle_proc;
 
-    //testing printf()
-    printf("Beat the odds. Go Beyond!\n");
-    
-    //testing memory allocator
-    paddr_t mem_region1 = palloc(2);
-    paddr_t mem_region2 = palloc(1);
-    printf("palloc test; mem_region1 starts at address paddr=%x\n", mem_region1);
-    printf("palloc test; mem_region2 starts at address paddr=%x\n", mem_region2);
-    
-    //testing context switching
-    proc_a = create_proc((uint32_t) a_entry);
-    proc_b = create_proc((uint32_t) b_entry);
+    create_proc(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
+
     yield();
     PANIC("switched to idle process");
 
-    //testing trap/exception handler and kernel PANIC
-    //triggering an exception. testing if exception works in turn also tests if PANIC works correctly
-    __asm__ __volatile__("unimp"); //unimp is the unimplemented instruction (signifies an unimplemented operation) that triggers a trap in our kernel. its a pseudo instruction in RISC-V translating into: csrrw x0, cycle, x0. triggers an exception since cycle is a read-only register but we aretrying to write to it. 
-    printf("this shouldnt be printed if PANIC works correctly\n");
-    
     for(;;) {__asm__ __volatile("wfi");}
 }
 

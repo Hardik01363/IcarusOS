@@ -206,7 +206,14 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
 struct process procs[PROCS_MAX]; //all the process control structures of our kernel
 
 void user_entry(void) {
-    PANIC("not yet implemented");
+    __asm__ __volatile__(
+        "csrw sepc, %[sepc]        \n" //setting pc (where sret jumps to)
+        "csrw sstatus, %[sstatus]  \n" //setting SPIE bit in sstatus register (enables hardware interrupts when entering user mode)
+        "sret                      \n" //switches from S-mode to U-mode
+        :
+        : [sepc] "r" (USER_BASE),
+          [sstatus] "r" (SSTATUS_SPIE)
+    );
 }
 
 struct process *create_proc(const void *image, size_t image_size) {

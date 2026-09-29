@@ -153,11 +153,30 @@ void kernel_entry(void) {
     );
 }
 
+void handle_syscall(struct trap_frame *f) {
+    switch (f->a3) {
+        case SYS_PUTCHAR: {
+            put_char(f->a0);
+            break;
+        }
+        default: {
+            PANIC("unexpected syscall a3=%x\n", f->a3);
+        }
+    }
+}
+
 void handle_trap(struct trap_frame *f) {
     uint32_t scause = READ_CSR(scause);
     uint32_t stval = READ_CSR(stval);
     uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
-    PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);
+    
+    if(scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
+    }
+    else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
+
+    WRITE_CSR(sepc, sepc);
 }
 
 //implementing context switching

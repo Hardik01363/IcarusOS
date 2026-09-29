@@ -1,6 +1,5 @@
 #include "user.h"
 
 void main(void) {
-    *((volatile int *) 0x80200000) = 0x1234;
-    for(;;);
+    printf("Konnichiwa from the shell. You have finally entered UserLand :)\n");
 }

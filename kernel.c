@@ -36,6 +36,11 @@ void put_char(char c) {
     sbi_call(c, 0,0,0,0,0,0, 1);
 }
 
+long get_char(void) {
+    struct sbi_ret ret = sbi_call(0,0,0,0,0,0,0,2);
+    return ret.error;
+}
+
 //the memory allocator will allocate contiguous memory in 4KB size pages/units. 
 paddr_t palloc(uint32_t n) {
     static paddr_t paddr_ptr = (paddr_t) __free_ram_start;
@@ -157,6 +162,14 @@ void handle_syscall(struct trap_frame *f) {
     switch (f->a3) {
         case SYS_PUTCHAR: {
             put_char(f->a0);
+            break;
+        }
+        case SYS_GETCHAR: {
+            while(1) {
+                long ch = get_char();
+                if(ch >= 0) {f->a0 = ch; break;}
+                yield();
+            }
             break;
         }
         default: {

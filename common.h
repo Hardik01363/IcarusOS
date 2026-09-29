@@ -13,7 +13,9 @@ typedef uint32_t vaddr_t; //virual address
 #define false 0
 #define NULL ((void *) 0)
 #define PAGE_SIZE 4096
-#define SYS_PUTCHAR 1 //as it is the first case in the switch-case in handle_syscall() function (in kernel.c)
+#define SYS_PUTCHAR 1 //as it is the first case in the switch-case in handle_syscall() function (in kernel.c). similar reasoning for those below
+#define SYS_GETCHAR 2
+
 //__builtin_'s provided by clang compiler, defined in C standard library's <stdarg.h>.
 //we can use compiler builtins without relying on standard library :)
 #define align_up(value, align)   __builtin_align_up(value, align)

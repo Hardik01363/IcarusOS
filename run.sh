@@ -24,4 +24,6 @@ $CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf \
 # --no-reboot stops emulator without rebooting if vm crashes (useful for debugging)
 $QEMU -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
     -d unimp,guest_errors,int,cpu_reset -D qemu.log \
+    -drive id=drive0,file=lorem.txt,format=raw,if=none \
+    -device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 \ #I'm using virtio-blk with virtio-mmio-bus and virtqueue as the data structure of choice
     -kernel kernel.elf

@@ -71,6 +71,22 @@ void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
+//some ease-of-use functions for accessing MMIO registers of virtio-blk. accessing MMIO registers risky and costly, so, i took these helper implementations from the virtio main documentations
+uint32_t virtio_reg_read32(unsigned offset) {
+    return *((volatile uint32_t *) (VIRTIO_BLK_PADDR + offset));
+}
+
+uint64_t virtio_reg_read64(unsigned offset) {
+    return *((volatile uint64_t *) (VIRTIO_BLK_PADDR + offset));
+}
+
+void virtio_reg_write32(unsigned offset, uint32_t value) {
+    *((volatile uint32_t *) (VIRTIO_BLK_PADDR + offset)) = value;
+}
+
+void virtio_reg_fetch_and_or32(unsigned offset, uint32_t value) {
+    virtio_reg_write32(offset, virtio_reg_read32(offset) | value);
+}
 
 //entry point of exception handler (to be registered in stvec register)
 __attribute__((naked))
@@ -247,6 +263,7 @@ struct process *create_proc(const void *image, size_t image_size) {
     for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X); //no PAGE_U, so, processes cant access these pages in user mode
     }
+    map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
 
     //mapping  user pages
     for(uint32_t offset = 0; offset < image_size; offset += PAGE_SIZE) {
@@ -353,12 +370,74 @@ void handle_trap(struct trap_frame *f) {
     WRITE_CSR(sepc, sepc);
 }
 
+//virtio-blk initialization as described in the spec. (this is a naive implementation, i MAY make it better later on)
+//basic flow: reset the device, set the required parameters, then enable the device
+struct virtio_virtq *blk_request_vq;
+struct virtio_blk_req *blk_req;
+paddr_t blk_req_paddr;
+uint64_t blk_capacity;
+
+void virtio_blk_init(void) {
+    if(virtio_reg_read32(VIRTIO_REG_MAGIC) != 0x74726976) {PANIC("virtio: invalid magic value");}
+    if(virtio_reg_read32(VIRTIO_REG_VERSION) != 1) {PANIC("virtio: invalid version");}
+    if(virtio_reg_read32(VIRTIO_REG_DEVICE_ID) != VIRTIO_DEVICE_BLK) {PANIC("virtio: invalid device id");}
+
+    //resetting the device
+    virtio_reg_write32(VIRTIO_REG_DEVICE_STATUS, 0);
+
+    //setting the ACKNOWLEDGE status bit (basically says "we found the device")
+    virtio_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_ACK);
+
+    //setting the DRIVER status bit (basically says "we know how to use the device")
+    virtio_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER);
+    
+    //setting the page size. we use 4KB pages. this defines PFN (page frame number) calculation
+    virtio_reg_write32(VIRTIO_REG_PAGE_SIZE, PAGE_SIZE);
+
+    //initializing a queue for disk read/write requests
+    blk_request_vq = virtq_init(0);
+
+    //setting the DRIVER_OK status bit (basically says "we can now use the device!!!!!!")
+    virtio_reg_write32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
+
+    //getting the disk capacity
+    blk_capacity = virtio_reg_read64(VIRTIO_REG_DEVICE_CONFIG + 0) * SECTOR_SIZE;
+    printf("virtio-blk: capacity is %d bytes\n", (int)blk_capacity);
+
+    //allocating a region to store requests to the device
+    blk_req_paddr = alloc_pages(align_up(sizeof(*blk_req), PAGE_SIZE) / PAGE_SIZE);
+    blk_req = (struct virtio_blk_req *) blk_req_paddr;
+}
+
+//initializing virtqueue (saw method from docs)
+struct virtio_virtq *virtq_init(unsigned index) {
+    //allocating a region for the virtqueue
+    paddr_t virtq_paddr = alloc_pages(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
+    struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
+    vq->queue_index = index;
+    vq->used_index = (volatile uint16_t *) &vq->used.index;
+
+    //selecting the queue (write the virtqueue index (first queue is 0))
+    virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
+
+    //specifying the queue size (write the # of descriptors we'll use)
+    virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
+    
+    //writing the physical page frame number (not physical address!!!!) of the queue
+    virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
+    
+    return vq;
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
     printf("\n\n");
     
     //telling the CPU where the exception handler is located
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
+
+    //initializing virtio-blk
+    virtio_blk_init();
 
     //creating an initial idle process with pid 0. this is the root process of IcarusOS
     idle_proc = create_proc(NULL, 0);

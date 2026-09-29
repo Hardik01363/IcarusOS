@@ -16,4 +16,5 @@ $CC $CFLAGS -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf \
 # can check other available machines with -machine '?'
 # --no-reboot stops emulator without rebooting if vm crashes (useful for debugging)
 $QEMU -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
+    -d unimp,guest_errors,int,cpu_reset -D qemu.log \
     -kernel kernel.elf

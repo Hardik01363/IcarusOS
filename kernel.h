@@ -48,6 +48,7 @@ struct process {
     int pid;
     int state; //unused(0) or runnable(1)
     vaddr_t sp;
+    uint32_t *page_table;
     uint8_t stack[STACK_SIZE]; //saves process state when context switching or handling trap/syscall
 };
 

@@ -5,7 +5,7 @@ typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef uint32_t size_t;
 
-extern char __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
+extern char __kernel_base[], __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
 
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
 struct sbi_ret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid) {
@@ -43,6 +43,25 @@ paddr_t palloc(uint32_t n) {
     memset((void *) start_paddr, 0, n * PAGE_SIZE);
     return start_paddr;
 }
+
+//map pages in 2-level page table
+void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
+    if(!is_aligned(vaddr, PAGE_SIZE)) {PANIC("unaligned vaddr: %x", vaddr);}
+    if(!is_aligned(paddr, PAGE_SIZE)) {PANIC("unaligned paddr: %x", paddr);}
+    
+    uint32_t vpn1 = (vaddr >> 22) & 0x3ff; //0x3ff is the highest value of vpn1 (8 bits by the 2 f's, 2 bits by 3), taking & with it to convert it from 10-bit to 12-bit value
+    if((table1[vpn1] & PAGE_V) == 0) {
+        //create 1st level page table if it doesnt exist
+        uint32_t pt_paddr = palloc(1);
+        table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
+    }
+
+    //setting 2nd level PT entry to map to physical page
+    uint32_t vpn0 = (vaddr >> 12) & 0x3ff;
+    uint32_t *table0 = (uint32_t *) ((table1[vpn1] >> 10) * PAGE_SIZE);
+    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
+}
+
 
 //entry point of exception handler (to be registered in stvec register)
 __attribute__((naked))
@@ -210,10 +229,17 @@ struct process *assign_pcb(uint32_t pc) {
     *--sp = 0;                      // s0
     *--sp = (uint32_t) pc;          // ra
     
+    //mapping kernel pages
+    uint32_t *page_table = (uint32_t *) palloc(1);
+    for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X); //no PAGE_U, so, processes cant access these pages in user mode
+    }
+
     //initialising the fields of the PCB to be returned
     unused_proc->pid = i + 1;
     unused_proc->state = PROC_RUNNABLE;
     unused_proc->sp = (uint32_t) sp;
+    unused_proc->page_table = page_table;
 
     return unused_proc;
 }
@@ -236,11 +262,16 @@ void yield(void) {
     //if no process runnable other than current one, dont context switch, just run it
     if(next_to_run == currently_running_proc) {return;}
     
-    //storing a pointer for the currently_running_proc to the bottom of the kernel stack in the sscratch register
+    //storing a pointer for the currently_running_proc to the bottom of the kernel stack in the sscratch register and switching the process's page table
     __asm__ __volatile__(
+        //sfence.vma ensure changes to PT completed properly and clear/flush the TLB
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
         "csrw sscratch, %[sscratch]\n"
         :
-        : [sscratch] "r" ((uint32_t) &next_to_run->stack[sizeof(next_to_run->stack)])
+        : [satp] "r" (SATP_SV32 | ((uint32_t) next_to_run->page_table / PAGE_SIZE)),
+          [sscratch] "r" ((uint32_t) &next_to_run->stack[sizeof(next_to_run->stack)])
     );
 
     //context switch
@@ -251,7 +282,7 @@ void yield(void) {
 
 //delay(), a_entry(), b_entry(), proc_a, proc_b, num_context_switches are made solely to test the context switching mechanism (not an integral part of the OS)
 void delay(void) {
-    for (int i = 0; i < 30000000; i++) {
+    for (int i = 0; i < 900000000; i++) {
         __asm__ __volatile__("nop"); // nop is an instruction that does nothing
     }
 }
@@ -263,6 +294,7 @@ int num_context_switches = 0;
 void a_entry(void) {
     printf("starting process A\n");
     while (1) {
+        delay();
         if(num_context_switches >= 30) {break;}
         num_context_switches++;
         put_char('A');
@@ -273,28 +305,12 @@ void a_entry(void) {
 void b_entry(void) {
     printf("starting process B\n");
     while (1) {
+        delay();
         if(num_context_switches >= 30) {break;}
         num_context_switches++;
         put_char('B');
         yield();
     }
-}
-
-void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
-    if(!is_aligned(vaddr, PAGE_SIZE)) {PANIC("unaligned vaddr: %x", vaddr);}
-    if(!is_aligned(paddr, PAGE_SIZE)) {PANIC("unaligned paddr: %x", paddr);}
-    
-    uint32_t vpn1 = (vaddr >> 22) & 0x3ff; //0x3ff is the highest value of vpn1 (8 bits by the 2 f's, 2 bits by 3), taking & with it to convert it from 10-bit to 12-bit value
-    if((table[vpn1] & PAGE_V) == 0) {
-        //create 1st level page table if it doesnt exist
-        uint32_t pt_paddr = palloc(1);
-        table[vpn1] = ((pt_paddr / PAGE_SIZE) << 10) | PAGE_V;
-    }
-
-    //setting 2nd level PT entry to map to physical page
-    uint32_t vpn0 = (vaddr >> 12) & 0x3ff;
-    uint32_t *table0 = (uint32_t *) ((table1[vpn1] >> 10) * PAGE_SIZE);
-    table0[vpn0] = ((paddr / PAGE_SIZE) << 10) | flags | PAGE_V;
 }
 
 void kernel_main(void) {

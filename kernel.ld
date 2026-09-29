@@ -2,7 +2,7 @@ ENTRY(boot)
 
 SECTIONS {
     . = 0x80200000; /*base address*/
-                    /*'.' represents current address*/
+    __kernel_base = .; /*'.' represents current address*/
     
     .text :{ /*section containing code of program*/
         KEEP(*(.text.boot));

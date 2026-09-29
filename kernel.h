@@ -59,3 +59,6 @@ struct process {
 #define PAGE_W    (1 << 2)   //page is writable
 #define PAGE_X    (1 << 3)   //page is executable
 #define PAGE_U    (1 << 4)   //accessible in user mode
+
+//base virtual address of an application image. matches the starting address defined in user.ld
+#define USER_BASE 0x1000000

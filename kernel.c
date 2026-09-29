@@ -6,6 +6,8 @@ typedef unsigned int uint32_t;
 typedef uint32_t size_t;
 
 extern char __kernel_base[], __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
+extern char __binary_shell_bin_start[], __binary_shell_bin_size[]; //symbols to use the embedded raw binary in shell.bin.o
+
 
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
 struct sbi_ret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long fid, long eid) {
@@ -201,7 +203,11 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp, uint32_t *next_sp)
 
 struct process procs[PROCS_MAX]; //all the process control structures of our kernel
 
-struct process *assign_pcb(uint32_t pc) {
+void user_entry(void) {
+    PANIC("not yet implemented");
+}
+
+struct process *create_proc(const void *image, size_t image_size) {
     //find and return an unused PCB
     struct process *unused_proc = NULL;
     int i;
@@ -227,12 +233,25 @@ struct process *assign_pcb(uint32_t pc) {
     *--sp = 0;                      // s2
     *--sp = 0;                      // s1
     *--sp = 0;                      // s0
-    *--sp = (uint32_t) pc;          // ra
+    *--sp = (uint32_t) user_entry;  // ra
     
     //mapping kernel pages
     uint32_t *page_table = (uint32_t *) palloc(1);
     for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X); //no PAGE_U, so, processes cant access these pages in user mode
+    }
+
+    //mapping  user pages
+    for(uint32_t offset = 0; offset < image_size; offset += PAGE_SIZE) {
+        paddr_t curr_page = palloc(1);
+        
+        //when data to be copied smaller than page size (for the last page being used for this image)
+        size_t rem = image_size - offset;
+        size_t copy_size = PAGE_SIZE <= rem ? PAGE_SIZE : rem; //using ternary operator like a pro *\(^o^)/*
+
+        //filling and mapping the page
+        memcpy((void *) curr_page, image + offset, copy_size);
+        map_page(page_table, USER_BASE + offset, curr_page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
     }
 
     //initialising the fields of the PCB to be returned
@@ -335,8 +354,8 @@ void kernel_main(void) {
     printf("palloc test; mem_region2 starts at address paddr=%x\n", mem_region2);
     
     //testing context switching
-    proc_a = assign_pcb((uint32_t) a_entry);
-    proc_b = assign_pcb((uint32_t) b_entry);
+    proc_a = create_proc((uint32_t) a_entry);
+    proc_b = create_proc((uint32_t) b_entry);
     yield();
     PANIC("switched to idle process");
 

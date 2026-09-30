@@ -523,6 +523,54 @@ void fs_init(void) {
     }
 }
 
+//writing to disk is implemented by writing the contents/value of the files variable back to the disk in tar format
+void fs_flush(void) {
+    //copying all file contents into disk buffer
+    memset(disk, 0, sizeof(disk));
+    unsigned offset = 0;
+    for(int file_i = 0; file_i < FILES_MAX_LOADED; file_i++) {
+        struct file *file = &files[file_i];
+        if(!file->in_use) {continue;}
+
+        struct tar_header *header = (struct tar_header *) &disk[off];
+        memset(header, 0, sizeof(*header));
+        strcpy(header->name, file->name);
+        strcpy(header->mode, "000644");
+        strcpy(header->magic, "ustar");
+        strcpy(header->version, "00");
+        header->type = '0';
+
+        //turning the file size into an octal string
+        int filesize = file->size;
+        for(int i = sizeof(header->size); i > 0; i--) {
+            header->size[i - 1] = (filesize % 8) + '0';
+            filesize /= 8;
+        }
+
+        //calculating the checksum
+        int checksum = ' ' * sizeof(header->checksum);
+        for(unsigned i = 0; i < sizeof(struct tar_header); i++) {
+            checksum += (unsigned char) disk[off + i];
+        }
+
+        for(int i = 5; i >= 0; i--) {
+            header->checksum[i] = (checksum % 8) + '0';
+            checksum /= 8;
+        }
+
+        //copying file data (finally!!!)
+        memcpy(header->data, file->data, file->size);
+        offset += align_up(sizeof(struct tar_header) + file->size, SECTOR_SIZE);
+    }
+
+    //writing disk buffer into the virtio-blk
+    for(unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
+        read_write_disk(&disk[sector * SECTOR_SIZE], sector, true);
+    }
+
+    printf("wrote %d bytes to disk\n", sizeof(disk));
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
     printf("\n\n");

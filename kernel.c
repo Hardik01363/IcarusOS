@@ -485,6 +485,44 @@ void read_write_disk(void *buf, unsigned sector, int is_write) {
     if(!is_write) {memcpy(buf, blk_req->data, SECTOR_SIZE);}
 }
 
+//reading the disk into memory
+struct file files[FILES_MAX_LOADED];
+uint8_t disk[DISK_MAX_SIZE];
+
+int octal2int(char* oct, int len) {
+    int dec = 0;
+    for(int i = 0; i < len; i++) {
+        if(oct[i] < '0' || oct[i] > '7') {break;}
+        dec = (dec * 8) + (oct[i] - '0');
+    }
+    return dec;
+}
+
+void fs_init(void) {
+    for(unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
+        read_write_disk(&disk[sector * SECTOR_SIZE], sector, false);
+    }
+
+    unsigned offset = 0;
+    //following ustar format of tar files, every file has a tar header and file data pair
+    for(int i = 0; i < FILES_MAX_LOADED; i++) {
+        struct tar_header *header = (struct tar_header *) &disk[offset];
+        if(header->name[0] == '\0') {break;}
+        if(strcmp(header->magic, "ustar") != 0) {
+            PANIC("invalid tar header: magic=\"%s\"", header->magic);
+        }
+
+        int filesize = octal2int(header->size, sizeof(header->size));
+        struct file *file = &files[i];
+        file->in_use = true;
+        strcpy(file->name, header->name);
+        memcpy(file->data, header->data, filesize);
+        file->size = filesize;
+        printf("file: %s, size=%d\n", file->name, file->size);
+        offset += align_up(sizeof(struct tar_header) + filesize, SECTOR_SIZE);
+    }
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
     printf("\n\n");
@@ -495,7 +533,8 @@ void kernel_main(void) {
     //initializing virtio-blk
     virtio_blk_init();
 
-        virtio_blk_init();
+    //initializing filesystem
+    fs_init();
 
     char buf[SECTOR_SIZE];
     //read from the disk

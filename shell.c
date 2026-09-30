@@ -24,6 +24,15 @@ prompt:
         if(strcmp(cmdline, "hello") == 0) {
             printf("Konnichiwa! Welcome to UserLand. This is your trusty shell (^o^)\n");
         }
+        else if (strcmp(cmdline, "readfile") == 0) {
+            char buf[128];
+            int len = readfile("konnichiwa.txt", buf, sizeof(buf));
+            buf[len] = '\0';
+            printf("%s\n", buf);
+        }
+        else if (strcmp(cmdline, "writefile") == 0) {
+            writefile("konnichiwa.txt", "Konnichiwa! The contents shown here didnt get here trivially. They were palced here using a disk write operation! *\(^o^)/* \n", 19);
+        }
         else if(strcmp(cmdline, "exit") == 0) {exit();}
         else {printf("unknown command: %s\n", cmdline);}
     }

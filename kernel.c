@@ -226,7 +226,7 @@ void user_entry(void) {
         "sret                      \n" //switches from S-mode to U-mode
         :
         : [sepc] "r" (USER_BASE),
-          [sstatus] "r" (SSTATUS_SPIE)
+          [sstatus] "r" (SSTATUS_SPIE | SSTATUS_SUM)
     );
 }
 
@@ -330,64 +330,12 @@ void delay(void) {
     }
 }
 
-void handle_syscall(struct trap_frame *f) {
-    switch (f->a3) {
-        case SYS_PUTCHAR: {
-            put_char(f->a0);
-            break;
-        }
-        case SYS_GETCHAR: {
-            while(1) {
-                long ch = get_char();
-                if(ch >= 0) {f->a0 = ch; break;}
-                yield();
-            }
-            break;
-        }
-        case SYS_EXIT: { //we only mark the process as exited for simplicity. in a more practical OS, resources held by the process must also be freed
-            printf("process %d exited\n", currently_running_proc->pid);
-            currently_running_proc->state = PROC_EXITED; //a process with this state never ran by the scheduler again
-            yield();
-            PANIC("unreachable"); //just in case this process does return again
-        }
-        default: {
-            PANIC("unexpected syscall a3=%x\n", f->a3);
-        }
+struct file *fs_lookup(const char *filename) {
+    for(int i = 0; i < FILES_MAX_LOADED; i++) {
+        struct file *file = &files[i];
+        if(strcmp(file->name, filename) == 0) {return file;}
     }
-}
-
-void handle_trap(struct trap_frame *f) {
-    uint32_t scause = READ_CSR(scause);
-    uint32_t stval = READ_CSR(stval);
-    uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
-    
-    if(scause == SCAUSE_ECALL) {
-        handle_syscall(f);
-        sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
-    }
-    else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
-
-    WRITE_CSR(sepc, sepc);
-}
-
-//initializing virtqueue (saw method from docs)
-struct virtio_virtq *virtq_init(unsigned index) {
-    //allocating a region for the virtqueue
-    paddr_t virtq_paddr = palloc(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
-    struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
-    vq->queue_index = index;
-    vq->used_index = (volatile uint16_t *) &vq->used.index;
-
-    //selecting the queue (write the virtqueue index (first queue is 0))
-    virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
-
-    //specifying the queue size (write the # of descriptors we'll use)
-    virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
-    
-    //writing the physical page frame number (not physical address!!!!) of the queue
-    virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
-    
-    return vq;
+    return NULL;
 }
 
 //virtio-blk initialization as described in the spec. (this is a naive implementation, i MAY make it better later on)
@@ -532,7 +480,7 @@ void fs_flush(void) {
         struct file *file = &files[file_i];
         if(!file->in_use) {continue;}
 
-        struct tar_header *header = (struct tar_header *) &disk[off];
+        struct tar_header *header = (struct tar_header *) &disk[offset];
         memset(header, 0, sizeof(*header));
         strcpy(header->name, file->name);
         strcpy(header->mode, "000644");
@@ -550,7 +498,7 @@ void fs_flush(void) {
         //calculating the checksum
         int checksum = ' ' * sizeof(header->checksum);
         for(unsigned i = 0; i < sizeof(struct tar_header); i++) {
-            checksum += (unsigned char) disk[off + i];
+            checksum += (unsigned char) disk[offset + i];
         }
 
         for(int i = 5; i >= 0; i--) {
@@ -569,6 +517,71 @@ void fs_flush(void) {
     }
 
     printf("wrote %d bytes to disk\n", sizeof(disk));
+}
+
+void handle_syscall(struct trap_frame *f) {
+    switch (f->a3) {
+        case SYS_PUTCHAR: {
+            put_char(f->a0);
+            break;
+        }
+        case SYS_GETCHAR: {
+            while(1) {
+                long ch = get_char();
+                if(ch >= 0) {f->a0 = ch; break;}
+                yield();
+            }
+            break;
+        }
+        case SYS_EXIT: { //we only mark the process as exited for simplicity. in a more practical OS, resources held by the process must also be freed
+            printf("process %d exited\n", currently_running_proc->pid);
+            currently_running_proc->state = PROC_EXITED; //a process with this state never ran by the scheduler again
+            yield();
+            PANIC("unreachable"); //just in case this process does return again
+        }
+        //readfile and writefile grouped together as they are mostly similar. only differ in some code that is deiifentiated in the below block using if-else statements
+        case SYS_READFILE:
+        case SYS_WRITEFILE: {
+            const char *filename = (const char *) f->a0;
+            char *buf = (char *) f->a1;
+            int len = f->a2;
+            struct file *file = fs_lookup(filename);
+            if(!file) {
+                printf("file not found: %s\n", filename);
+                f->a0 = -1;
+                break;
+            }
+
+            if(len > (int) sizeof(file->data)) {len = file->size;}
+
+            if(f->a3 == SYS_WRITEFILE) {
+                memcpy(file->data, buf, len);
+                file->size = len;
+                fs_flush();
+            }
+            else {memcpy(buf, file->data, len);}
+
+            f->a0 = len;
+            break;
+        }
+        default: {
+            PANIC("unexpected syscall a3=%x\n", f->a3);
+        }
+    }
+}
+
+void handle_trap(struct trap_frame *f) {
+    uint32_t scause = READ_CSR(scause);
+    uint32_t stval = READ_CSR(stval);
+    uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
+    
+    if(scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
+    }
+    else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
+
+    WRITE_CSR(sepc, sepc);
 }
 
 void kernel_main(void) {

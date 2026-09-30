@@ -16,6 +16,8 @@ typedef uint32_t vaddr_t; //virual address
 #define SYS_PUTCHAR 1 //as it is the first case in the switch-case in handle_syscall() function (in kernel.c). similar reasoning for those below
 #define SYS_GETCHAR 2
 #define SYS_EXIT 3
+#define SYS_READFILE  4
+#define SYS_WRITEFILE 5
 
 //__builtin_'s provided by clang compiler, defined in C standard library's <stdarg.h>.
 //we can use compiler builtins without relying on standard library :)

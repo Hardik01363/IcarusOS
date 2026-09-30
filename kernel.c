@@ -370,6 +370,26 @@ void handle_trap(struct trap_frame *f) {
     WRITE_CSR(sepc, sepc);
 }
 
+//initializing virtqueue (saw method from docs)
+struct virtio_virtq *virtq_init(unsigned index) {
+    //allocating a region for the virtqueue
+    paddr_t virtq_paddr = palloc(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
+    struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
+    vq->queue_index = index;
+    vq->used_index = (volatile uint16_t *) &vq->used.index;
+
+    //selecting the queue (write the virtqueue index (first queue is 0))
+    virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
+
+    //specifying the queue size (write the # of descriptors we'll use)
+    virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
+    
+    //writing the physical page frame number (not physical address!!!!) of the queue
+    virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
+    
+    return vq;
+}
+
 //virtio-blk initialization as described in the spec. (this is a naive implementation, i MAY make it better later on)
 //basic flow: reset the device, set the required parameters, then enable the device
 struct virtio_virtq *blk_request_vq;
@@ -405,28 +425,64 @@ void virtio_blk_init(void) {
     printf("virtio-blk: capacity is %d bytes\n", (int)blk_capacity);
 
     //allocating a region to store requests to the device
-    blk_req_paddr = alloc_pages(align_up(sizeof(*blk_req), PAGE_SIZE) / PAGE_SIZE);
+    blk_req_paddr = palloc(align_up(sizeof(*blk_req), PAGE_SIZE) / PAGE_SIZE);
     blk_req = (struct virtio_blk_req *) blk_req_paddr;
 }
 
-//initializing virtqueue (saw method from docs)
-struct virtio_virtq *virtq_init(unsigned index) {
-    //allocating a region for the virtqueue
-    paddr_t virtq_paddr = alloc_pages(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
-    struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
-    vq->queue_index = index;
-    vq->used_index = (volatile uint16_t *) &vq->used.index;
+//notifies the device that there is a new request. `desc_index` is index of the head descriptor of the new request
+void virtq_kick(struct virtio_virtq *vq, int desc_index) {
+    vq->avail.ring[vq->avail.index % VIRTQ_ENTRY_NUM] = desc_index;
+    vq->avail.index++;
+    __sync_synchronize();
+    virtio_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, vq->queue_index);
+    vq->last_used_index++;
+}
 
-    //selecting the queue (write the virtqueue index (first queue is 0))
-    virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
+bool virtq_is_busy(struct virtio_virtq *vq) {
+    return vq->last_used_index != *vq->used_index;
+}
 
-    //specifying the queue size (write the # of descriptors we'll use)
-    virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
-    
-    //writing the physical page frame number (not physical address!!!!) of the queue
-    virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
-    
-    return vq;
+void read_write_disk(void *buf, unsigned sector, int is_write) {
+    if(sector >= blk_capacity / SECTOR_SIZE) {
+        printf("virtio: tried to read/write sector=%d, but capacity is %d\n",
+              sector, blk_capacity / SECTOR_SIZE);
+        return;
+    }
+
+    //constructing the request according to the virtio-blk specifications
+    blk_req->sector = sector;
+    blk_req->type = is_write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN;
+    if(is_write) {memcpy(blk_req->data, buf, SECTOR_SIZE);}
+
+    //constructing the virtqueue 3 descriptors
+    struct virtio_virtq *vq = blk_request_vq;
+    vq->descs[0].addr = blk_req_paddr;
+    vq->descs[0].len = sizeof(uint32_t) * 2 + sizeof(uint64_t);
+    vq->descs[0].flags = VIRTQ_DESC_F_NEXT;
+    vq->descs[0].next = 1;
+
+    vq->descs[1].addr = blk_req_paddr + offsetof(struct virtio_blk_req, data);
+    vq->descs[1].len = SECTOR_SIZE;
+    vq->descs[1].flags = VIRTQ_DESC_F_NEXT | (is_write ? 0 : VIRTQ_DESC_F_WRITE);
+    vq->descs[1].next = 2;
+
+    vq->descs[2].addr = blk_req_paddr + offsetof(struct virtio_blk_req, status);
+    vq->descs[2].len = sizeof(uint8_t);
+    vq->descs[2].flags = VIRTQ_DESC_F_WRITE;
+
+    //notifying the device that there is a new request
+    virtq_kick(vq, 0);
+
+    //waiting until the device finishes processing
+    while(virtq_is_busy(vq)) {;}
+
+    if(blk_req->status != 0) {
+        printf("virtio: warn: failed to read/write sector=%d status=%d\n", sector, blk_req->status);
+        return;
+    }
+
+    //for read operations, copy the data into the buffer
+    if(!is_write) {memcpy(buf, blk_req->data, SECTOR_SIZE);}
 }
 
 void kernel_main(void) {
@@ -438,6 +494,17 @@ void kernel_main(void) {
 
     //initializing virtio-blk
     virtio_blk_init();
+
+        virtio_blk_init();
+
+    char buf[SECTOR_SIZE];
+    //read from the disk
+    read_write_disk(buf, 0, false);
+    printf("first sector: %s\n", buf);
+
+    strcpy(buf, "hello from kernel!!!\n");
+    //write to the disk
+    read_write_disk(buf, 0, true);
 
     //creating an initial idle process with pid 0. this is the root process of IcarusOS
     idle_proc = create_proc(NULL, 0);

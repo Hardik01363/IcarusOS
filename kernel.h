@@ -131,11 +131,16 @@ struct virtio_virtq {
     uint16_t last_used_index;
 } __attribute__((packed));
 
-//virtio-blk request
+//virtio-blk request (3 descriptors defined as is used by kernel.c and defined in the specifications)
 struct virtio_blk_req {
+    //first descriptor (read-only from the device)
     uint32_t type;
     uint32_t reserved;
     uint64_t sector;
+
+    //second descriptor (writable by the device if it's a read operation (VIRTQ_DESC_F_WRITE))
     uint8_t data[512];
+
+    //third descriptor (writable by the device (VIRTQ_DESC_F_WRITE))
     uint8_t status;
 } __attribute__((packed));

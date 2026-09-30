@@ -283,6 +283,7 @@ struct process *create_proc(const void *image, size_t image_size) {
     unused_proc->state = PROC_RUNNABLE;
     unused_proc->sp = (uint32_t) sp;
     unused_proc->page_table = page_table;
+    strcpy(unused_proc->cwd, "/"); //every process starts in the root directory
 
     return unused_proc;
 }
@@ -330,6 +331,9 @@ void delay(void) {
     }
 }
 
+struct file files[FILES_MAX_LOADED];
+uint8_t disk[DISK_MAX_SIZE];
+
 struct file *fs_lookup(const char *filename) {
     for(int i = 0; i < FILES_MAX_LOADED; i++) {
         struct file *file = &files[i];
@@ -344,6 +348,25 @@ struct virtio_virtq *blk_request_vq;
 struct virtio_blk_req *blk_req;
 paddr_t blk_req_paddr;
 uint64_t blk_capacity;
+
+//initializing a virtqueue. allocates the queue memory and tells the device its location (as a page frame number, not a physical address)
+struct virtio_virtq *virtq_init(unsigned index) {
+    //allocating a region for the virtqueue
+    paddr_t virtq_paddr = palloc(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
+    struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
+    vq->queue_index = index;
+    vq->used_index = (volatile uint16_t *) &vq->used.index;
+
+    //selecting the queue by writing its index (first queue is 0)
+    virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
+
+    //telling the device the queue size (number of descriptors we will use)
+    virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
+
+    //writing the physical page frame number of the queue
+    virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
+    return vq;
+}
 
 void virtio_blk_init(void) {
     if(virtio_reg_read32(VIRTIO_REG_MAGIC) != 0x74726976) {PANIC("virtio: invalid magic value");}
@@ -433,10 +456,6 @@ void read_write_disk(void *buf, unsigned sector, int is_write) {
     if(!is_write) {memcpy(buf, blk_req->data, SECTOR_SIZE);}
 }
 
-//reading the disk into memory
-struct file files[FILES_MAX_LOADED];
-uint8_t disk[DISK_MAX_SIZE];
-
 int octal2int(char* oct, int len) {
     int dec = 0;
     for(int i = 0; i < len; i++) {
@@ -446,6 +465,7 @@ int octal2int(char* oct, int len) {
     return dec;
 }
 
+//reading the disk into memory
 void fs_init(void) {
     for(unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
         read_write_disk(&disk[sector * SECTOR_SIZE], sector, false);
@@ -562,6 +582,19 @@ void handle_syscall(struct trap_frame *f) {
             else {memcpy(buf, file->data, len);}
 
             f->a0 = len;
+            break;
+        }
+        case SYS_GETCWD: {
+            char *buf = (char *) f->a0;
+            int len = f->a1;
+            int cwd_len = strlen(currently_running_proc->cwd);
+            if(cwd_len + 1 > len) { //+1 for the '\0'
+                f->a0 = -1;
+                break;
+            }
+
+            strcpy(buf, currently_running_proc->cwd);
+            f->a0 = cwd_len;
             break;
         }
         default: {

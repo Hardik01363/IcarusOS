@@ -7,3 +7,4 @@ void put_char(char ch);
 int get_char(void);
 int readfile(const char *filename, char *buf, int len);
 int writefile(const char *filename, const char *buf, int len);
+int getcwd(char *buf, int len);

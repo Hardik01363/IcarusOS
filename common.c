@@ -86,3 +86,9 @@ int strcmp(const char *s1, const char *s2) {
     }
     return *(unsigned char *)s1 - *(unsigned char *)s2; //casting to unsigned char *  to follow POSIX specifications
 }
+
+size_t strlen(const char *s) {
+    size_t len = 0;
+    while(s[len]) {len++;}
+    return len;
+}

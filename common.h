@@ -13,11 +13,13 @@ typedef uint32_t vaddr_t; //virual address
 #define false 0
 #define NULL ((void *) 0)
 #define PAGE_SIZE 4096
+#define CWD_MAX 64 //max length of a process's current working directory path (including the '\0')
 #define SYS_PUTCHAR 1 //as it is the first case in the switch-case in handle_syscall() function (in kernel.c). similar reasoning for those below
 #define SYS_GETCHAR 2
 #define SYS_EXIT 3
 #define SYS_READFILE  4
 #define SYS_WRITEFILE 5
+#define SYS_GETCWD 6
 
 //__builtin_'s provided by clang compiler, defined in C standard library's <stdarg.h>.
 //we can use compiler builtins without relying on standard library :)
@@ -34,3 +36,4 @@ void *memset(void *buf, char c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
 char *strcpy(char *dst, const char *src);
 int strcmp(const char *s1, const char *s2);
+size_t strlen(const char *s);

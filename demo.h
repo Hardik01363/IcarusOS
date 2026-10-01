@@ -1,7 +1,7 @@
 #ifdef DEMO_TOUR
 
 void demo_wait(void) {
-    printf("\n\033[2m[ press any key for the next power ]\033[0m\n");
+    printf("\n\033[2m[ press any key for the next step]\033[0m\n");
     while(get_char() < 0) {;}
 }
 

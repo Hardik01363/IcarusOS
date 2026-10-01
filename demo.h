@@ -6,7 +6,7 @@ void demo_wait(void) {
 }
 
 void demo_title(int n, const char *t) {
-    printf("\n\033[1;33m=== power %d: %s ===\033[0m\n", n, t);
+    printf("\n\033[1;33m=== feature %d: %s ===\033[0m\n", n, t);
 }
 
 void demo_flags(uint32_t pte) {

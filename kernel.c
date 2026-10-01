@@ -832,7 +832,7 @@ void kernel_main(void) {
     next_pid = 1;
     currently_running_proc = idle_proc;
     BOOT_OK("idle process created (pid 0)");
-
+    
 #ifdef DEMO_TOUR
     demo_tour();
 #endif

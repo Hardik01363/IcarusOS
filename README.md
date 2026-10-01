@@ -13,11 +13,26 @@ IcarusOS is a from-scratch operating system for 32-bit RISC-V that boots on QEMU
 It started life by following the excellent [*Operating System in 1,000 Lines*](https://1000os.seiya.me/en/) book by Seiya Nuta, then grew its own shell, its own syscalls, and a slightly unhealthy attachment to kaomoji.
 
 ```
-            \   |   /
-         ~~~ '-.:::.-' ~~~
-      <=====( .:::::. )=====>      I c a r u s O S
-         ~~~ '-:::::-' ~~~         a tiny RISC-V OS that flew
-            /   |   \              too close to the sun
+\            |            / 
+                                                ' .       |       . '
+      ICARUS OS                            -        -   .---.   -        -
+please put up with my bad drawing (^.^)        '  .   /:::::::\   .  '
+took me an hour for this masterpiece :)             - \:::::::/ -          -
+                                               .  '   / '---' \   '  .
+                                           -        -           -        -
+                                                . '       |       ' .
+                                              /            |            \   
+
+                                                               *   .  ,
+                                                               ,    *
+                               *                               .    *
+         _/\_            _/\_                     .            .        ,
+        //  \_  \O/  _//  \                             *       .
+        ||    |   |   |    ||                       .       ,
+         \   \  / \  /   //                 *                 .
+          \   \ \ / /   //                                  *
+           `    `   `    `                        .
+
 
 [ ok ] trap vector installed
 [ ok ] page allocator ready: 16384 pages (64 MB)

@@ -24,6 +24,10 @@ void printf(const char* fmtd_str, ...) {
                     while(*s) {put_char(*s); s++;}
                     break;
                 }
+                case 'c': {
+                    put_char(va_arg(vargs, int));
+                    break;
+                }
                 case 'd': {
                     int value = va_arg(vargs, int);
                     unsigned mag = value; //mag ~= magnitude

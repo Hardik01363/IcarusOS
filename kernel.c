@@ -1,5 +1,8 @@
 //unimp is the unimplemented instruction (signifies an unimplemented operation) that triggers a trap in our kernel. its a pseudo instruction in RISC-V translating into: csrrw x0, cycle, x0. triggers an exception since cycle is a read-only register but we aretrying to write to it.
 
+//uncomment the next line (or run `DEMO=1 ./run.sh`) to play the demo tour before the shell starts
+//#define DEMO_TOUR
+
 #include "kernel.h"
 #include "common.h"
 
@@ -9,6 +12,9 @@ typedef uint32_t size_t;
 
 extern char __kernel_base[], __bss[], __bss_end[], __stack_top[], __free_ram_start[], __free_ram_end[]; //__bss alone would mean value of 0th byte of .bss section. To get start address of .bss section, we add the [] at the end
 extern char _binary_shell_bin_start[], _binary_shell_bin_size[]; //symbols to use the embedded raw binary in shell.bin.o
+extern char _binary_spinner_bin_start[], _binary_spinner_bin_size[];
+extern char _binary_ticker_bin_start[], _binary_ticker_bin_size[];
+extern char _binary_crash_bin_start[], _binary_crash_bin_size[];
 
 
 //sbi_call implemented accordin to OpenSBI calling convention. SBI can only change values of a0, a1 registers. a2-a7 reg values remain same after the call.
@@ -41,9 +47,36 @@ long get_char(void) {
     return ret.error;
 }
 
+uint64_t rdtime(void) {
+    uint32_t hi, lo, hi2;
+    do {
+        hi = READ_CSR(timeh);
+        lo = READ_CSR(time);
+        hi2 = READ_CSR(timeh);
+    } while(hi != hi2);
+    return ((uint64_t) hi << 32) | lo;
+}
+
+void sleep_ms(uint32_t ms) {
+    uint32_t t = (uint32_t) rdtime();
+    while((uint32_t) rdtime() - t < ms * (TICKS_PER_SEC / 1000)) {;}
+}
+
+__attribute__((noreturn)) void halt(void) {
+    printf("\n\033[1;33mIcarusOS halted. Goodbye (^o^)/\033[0m\n");
+    sbi_call(0, 0, 0, 0, 0, 0, 0, 0x53525354);
+    sbi_call(0, 0, 0, 0, 0, 0, 0, 8);
+    for(;;) {__asm__ __volatile__("wfi");}
+}
+
 //the memory allocator will allocate contiguous memory in 4KB size pages/units. 
+paddr_t paddr_ptr = (paddr_t) __free_ram_start;
+
+int free_pages(void) {
+    return ((paddr_t) __free_ram_end - paddr_ptr) / PAGE_SIZE;
+}
+
 paddr_t palloc(uint32_t n) {
-    static paddr_t paddr_ptr = (paddr_t) __free_ram_start;
     paddr_t start_paddr = paddr_ptr;
     paddr_ptr += n * PAGE_SIZE;
 
@@ -230,17 +263,28 @@ void user_entry(void) {
     );
 }
 
-struct process *create_proc(const void *image, size_t image_size) {
+uint32_t *new_pt(void) {
+    uint32_t *page_table = (uint32_t *) palloc(1);
+    for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X); //no PAGE_U, so, processes cant access these pages in user mode
+    }
+    map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
+    return page_table;
+}
+
+int next_pid = 1;
+
+struct process *create_proc(const char *name, const void *image, size_t image_size) {
     //find and return an unused PCB
     struct process *unused_proc = NULL;
     int i;
     for(i = 0; i < PROCS_MAX; i++) {
-        if(procs[i].state == PROC_UNUSED) {
+        if(procs[i].state == PROC_UNUSED || procs[i].state == PROC_EXITED) {
             unused_proc = &procs[i];
             break;
         }
     }
-    if(!unused_proc) {PANIC("no free process slots available");}
+    if(!unused_proc) {return NULL;}
 
     //stack callee-saved registers. restored in the first context switch in switch_context
     uint32_t *sp = (uint32_t *) &unused_proc->stack[sizeof(unused_proc->stack)];
@@ -259,11 +303,7 @@ struct process *create_proc(const void *image, size_t image_size) {
     *--sp = (uint32_t) user_entry;  // ra
     
     //mapping kernel pages
-    uint32_t *page_table = (uint32_t *) palloc(1);
-    for(paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
-        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X); //no PAGE_U, so, processes cant access these pages in user mode
-    }
-    map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W);
+    uint32_t *page_table = new_pt();
 
     //mapping  user pages
     for(uint32_t offset = 0; offset < image_size; offset += PAGE_SIZE) {
@@ -279,11 +319,14 @@ struct process *create_proc(const void *image, size_t image_size) {
     }
 
     //initialising the fields of the PCB to be returned
-    unused_proc->pid = i + 1;
+    unused_proc->pid = next_pid++;
     unused_proc->state = PROC_RUNNABLE;
     unused_proc->sp = (uint32_t) sp;
     unused_proc->page_table = page_table;
     strcpy(unused_proc->cwd, "/"); //every process starts in the root directory
+    int k = 0;
+    while(name[k] && k < (int) sizeof(unused_proc->name) - 1) {unused_proc->name[k] = name[k]; k++;}
+    unused_proc->name[k] = '\0';
 
     return unused_proc;
 }
@@ -295,8 +338,8 @@ struct process *idle_proc;
 void yield(void) {
     //searching for a runnable process. since we have at max 8 processes, we dont need to maintain a separate list of available to run processes, we can just scan the whole process list and check running/unused status
     struct process *next_to_run = idle_proc;
-    for(int i = 0; i < PROCS_MAX; i++) {
-        struct process *proc = &procs[(currently_running_proc->pid + i) % PROCS_MAX];
+    for(int i = 1; i <= PROCS_MAX; i++) {
+        struct process *proc = &procs[((currently_running_proc - procs) + i) % PROCS_MAX];
         if(proc->state == PROC_RUNNABLE && proc->pid > 0) {
             next_to_run = proc;
             break;
@@ -337,7 +380,7 @@ uint8_t disk[DISK_MAX_SIZE];
 struct file *fs_lookup(const char *filename) {
     for(int i = 0; i < FILES_MAX_LOADED; i++) {
         struct file *file = &files[i];
-        if(strcmp(file->name, filename) == 0) {return file;}
+        if(file->in_use && strcmp(file->name, filename) == 0) {return file;}
     }
     return NULL;
 }
@@ -393,7 +436,6 @@ void virtio_blk_init(void) {
 
     //getting the disk capacity
     blk_capacity = virtio_reg_read64(VIRTIO_REG_DEVICE_CONFIG + 0) * SECTOR_SIZE;
-    printf("virtio-blk: capacity is %d bytes\n", (int)blk_capacity);
 
     //allocating a region to store requests to the device
     blk_req_paddr = palloc(align_up(sizeof(*blk_req), PAGE_SIZE) / PAGE_SIZE);
@@ -465,15 +507,19 @@ int octal2int(char* oct, int len) {
     return dec;
 }
 
-//reading the disk into memory
-void fs_init(void) {
+//reading the disk into memory. returns the number of files found
+int fs_init(void) {
+    if(blk_capacity < sizeof(disk)) {PANIC("disk image too small (%d bytes), delete disk.tar and run ./run.sh fresh", (int) blk_capacity);}
+
     for(unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
         read_write_disk(&disk[sector * SECTOR_SIZE], sector, false);
     }
 
     unsigned offset = 0;
+    int i;
     //following ustar format of tar files, every file has a tar header and file data pair
-    for(int i = 0; i < FILES_MAX_LOADED; i++) {
+    for(i = 0; i < FILES_MAX_LOADED; i++) {
+        if(offset + sizeof(struct tar_header) > sizeof(disk)) {break;}
         struct tar_header *header = (struct tar_header *) &disk[offset];
         if(header->name[0] == '\0') {break;}
         if(strcmp(header->magic, "ustar") != 0) {
@@ -481,14 +527,15 @@ void fs_init(void) {
         }
 
         int filesize = octal2int(header->size, sizeof(header->size));
+        int copy = filesize > FILE_DATA_MAX ? FILE_DATA_MAX : filesize;
         struct file *file = &files[i];
         file->in_use = true;
         strcpy(file->name, header->name);
-        memcpy(file->data, header->data, filesize);
-        file->size = filesize;
-        printf("file: %s, size=%d\n", file->name, file->size);
+        memcpy(file->data, header->data, copy);
+        file->size = copy;
         offset += align_up(sizeof(struct tar_header) + filesize, SECTOR_SIZE);
     }
+    return i;
 }
 
 //writing to disk is implemented by writing the contents/value of the files variable back to the disk in tar format
@@ -539,6 +586,44 @@ void fs_flush(void) {
     printf("wrote %d bytes to disk\n", sizeof(disk));
 }
 
+struct file *fs_create(const char *filename) {
+    if(filename[0] == '\0' || strlen(filename) >= sizeof(files[0].name)) {return NULL;}
+    for(int i = 0; i < FILES_MAX_LOADED; i++) {
+        if(!files[i].in_use) {
+            memset(&files[i], 0, sizeof(files[i]));
+            files[i].in_use = true;
+            strcpy(files[i].name, filename);
+            return &files[i];
+        }
+    }
+    return NULL;
+}
+
+int fs_write(const char *filename, const char *buf, int len) {
+    struct file *file = fs_lookup(filename);
+    if(!file) {file = fs_create(filename);}
+    if(!file) {return -1;}
+    if(len < 0) {len = 0;}
+    if(len > FILE_DATA_MAX) {len = FILE_DATA_MAX;}
+    memset(file->data, 0, sizeof(file->data));
+    memcpy(file->data, buf, len);
+    file->size = len;
+    fs_flush();
+    return len;
+}
+
+struct prog {char *start; size_t size;};
+
+int find_prog(const char *name, struct prog *p) {
+#define PROG(n) if(strcmp(name, #n) == 0) {p->start = _binary_##n##_bin_start; p->size = (size_t) _binary_##n##_bin_size; return 1;}
+    PROG(shell)
+    PROG(spinner)
+    PROG(ticker)
+    PROG(crash)
+#undef PROG
+    return 0;
+}
+
 void handle_syscall(struct trap_frame *f) {
     switch (f->a3) {
         case SYS_PUTCHAR: {
@@ -554,34 +639,25 @@ void handle_syscall(struct trap_frame *f) {
             break;
         }
         case SYS_EXIT: { //we only mark the process as exited for simplicity. in a more practical OS, resources held by the process must also be freed
-            printf("process %d exited\n", currently_running_proc->pid);
+            printf("process %d (%s) exited\n", currently_running_proc->pid, currently_running_proc->name);
             currently_running_proc->state = PROC_EXITED; //a process with this state never ran by the scheduler again
             yield();
             PANIC("unreachable"); //just in case this process does return again
         }
-        //readfile and writefile grouped together as they are mostly similar. only differ in some code that is deiifentiated in the below block using if-else statements
-        case SYS_READFILE:
-        case SYS_WRITEFILE: {
+        case SYS_READFILE: {
             const char *filename = (const char *) f->a0;
             char *buf = (char *) f->a1;
             int len = f->a2;
             struct file *file = fs_lookup(filename);
-            if(!file) {
-                printf("file not found: %s\n", filename);
-                f->a0 = -1;
-                break;
-            }
+            if(!file) {f->a0 = -1; break;}
 
-            if(len > (int) sizeof(file->data)) {len = file->size;}
-
-            if(f->a3 == SYS_WRITEFILE) {
-                memcpy(file->data, buf, len);
-                file->size = len;
-                fs_flush();
-            }
-            else {memcpy(buf, file->data, len);}
-
+            if(len > (int) file->size) {len = file->size;}
+            memcpy(buf, file->data, len);
             f->a0 = len;
+            break;
+        }
+        case SYS_WRITEFILE: {
+            f->a0 = fs_write((const char *) f->a0, (const char *) f->a1, f->a2);
             break;
         }
         case SYS_GETCWD: {
@@ -597,6 +673,84 @@ void handle_syscall(struct trap_frame *f) {
             f->a0 = cwd_len;
             break;
         }
+        case SYS_YIELD: {
+            yield();
+            break;
+        }
+        case SYS_SPAWN: {
+            struct prog prog;
+            if(!find_prog((const char *) f->a0, &prog)) {f->a0 = -1; break;}
+            struct process *p = create_proc((const char *) f->a0, prog.start, prog.size);
+            if(!p) {f->a0 = -2; break;}
+            f->a0 = p->pid;
+            yield();
+            break;
+        }
+        case SYS_LISTFILES: {
+            int idx = f->a0;
+            char *buf = (char *) f->a1;
+            int len = f->a2;
+            f->a0 = -1;
+            for(int i = 0; i < FILES_MAX_LOADED; i++) {
+                if(!files[i].in_use) {continue;}
+                if(idx-- > 0) {continue;}
+                if((int) strlen(files[i].name) + 1 > len) {break;}
+                strcpy(buf, files[i].name);
+                f->a0 = files[i].size;
+                break;
+            }
+            break;
+        }
+        case SYS_PROCINFO: {
+            int idx = f->a0;
+            struct procinfo *pi = (struct procinfo *) f->a1;
+            if(idx < 0 || idx >= PROCS_MAX) {f->a0 = -1; break;}
+            struct process *p = &procs[idx];
+            pi->pid = p->pid;
+            pi->state = p == currently_running_proc ? PS_RUNNING : p->state;
+            strcpy(pi->name, p->name);
+            f->a0 = 0;
+            break;
+        }
+        case SYS_SYSINFO: {
+            struct sysinfo *si = (struct sysinfo *) f->a0;
+            si->total_pages = ((paddr_t) __free_ram_end - (paddr_t) __free_ram_start) / PAGE_SIZE;
+            si->free_pages = free_pages();
+            si->uptime_s = (uint32_t) (rdtime() >> 7) / (TICKS_PER_SEC / 128);
+            si->procs = 0;
+            for(int i = 0; i < PROCS_MAX; i++) {
+                if(procs[i].state == PROC_RUNNABLE && procs[i].pid > 0) {si->procs++;}
+            }
+            f->a0 = 0;
+            break;
+        }
+        case SYS_TIME: {
+            f->a0 = (uint32_t) rdtime();
+            break;
+        }
+        case SYS_SHUTDOWN: {
+            halt();
+        }
+        case SYS_KILL: {
+            int pid = f->a0;
+            struct process *t = NULL;
+            for(int i = 0; i < PROCS_MAX; i++) {
+                if(pid > 0 && procs[i].pid == pid && procs[i].state == PROC_RUNNABLE) {t = &procs[i];}
+            }
+            if(!t) {f->a0 = -1; break;}
+            printf("process %d (%s) killed\n", t->pid, t->name);
+            t->state = PROC_EXITED;
+            if(t == currently_running_proc) {
+                yield();
+                PANIC("unreachable");
+            }
+            f->a0 = 0;
+            break;
+        }
+        case SYS_GETPID: {
+            f->a0 = currently_running_proc->pid;
+            break;
+        }
         default: {
             PANIC("unexpected syscall a3=%x\n", f->a3);
         }
@@ -607,49 +761,76 @@ void handle_trap(struct trap_frame *f) {
     uint32_t scause = READ_CSR(scause);
     uint32_t stval = READ_CSR(stval);
     uint32_t sepc = READ_CSR(sepc); //sepc is basically user_pc
+    uint32_t sstatus = READ_CSR(sstatus);
     
     if(scause == SCAUSE_ECALL) {
         handle_syscall(f);
         sepc += 4; //to move an instruction ahead, otherwise, syscalls will be called infinitely
+    }
+    else if((sstatus & SSTATUS_SPP) == 0) { //SPP = 0 means the trap came from user mode, so only that process is at fault
+        const char *why = scause == 12 ? "instruction page fault" : scause == 13 ? "load page fault" : scause == 15 ? "store page fault" : scause == 2 ? "illegal instruction" : "exception";
+        printf("process %d (%s) killed: segmentation fault (%s, addr=0x%x, pc=0x%x)\n", currently_running_proc->pid, currently_running_proc->name, why, stval, sepc);
+        currently_running_proc->state = PROC_EXITED;
+        yield();
+        PANIC("unreachable");
     }
     else {PANIC("Unexpected trap: scause=%x, stval=%x, sepc=%x\n", scause, stval, sepc);}
 
     WRITE_CSR(sepc, sepc);
 }
 
+#include "demo.h"
+
+#define SPLASH_MS 120
+#define BOOT_OK(...) do {printf("[\033[1;32m ok \033[0m] "); printf(__VA_ARGS__); printf("\n"); sleep_ms(SPLASH_MS);} while(0)
+
+void splash(void) {
+    printf("\033[2J\033[H\033[1;33m\n");
+    printf("            \\   |   /\n");
+    printf("         ~~~ '-.:::.-' ~~~\n");
+    printf("      <=====( .:::::. )=====>      I c a r u s O S\n");
+    printf("         ~~~ '-:::::-' ~~~         a tiny RISC-V OS that flew\n");
+    printf("            /   |   \\              too close to the sun\n");
+    printf("\033[0m\n");
+    sleep_ms(SPLASH_MS * 3);
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss); //.bss section initialised to 0. Some bootloders may recognise and 0-clear the .bss section, but, we do it manually too just in case the bootloader doesnt.
-    printf("\n\n");
-    
+    splash();
+
     //telling the CPU where the exception handler is located
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
+    BOOT_OK("trap vector installed");
+    BOOT_OK("page allocator ready: %d pages (%d MB)", free_pages(), free_pages() / 256);
 
     //initializing virtio-blk
     virtio_blk_init();
+    BOOT_OK("virtio-blk disk: %d bytes", (int) blk_capacity);
 
     //initializing filesystem
-    fs_init();
-
-    char buf[SECTOR_SIZE];
-    //read from the disk
-    read_write_disk(buf, 0, false);
-    printf("first sector: %s\n", buf);
-
-    strcpy(buf, "hello from kernel!!!\n");
-    //write to the disk
-    read_write_disk(buf, 0, true);
+    int nfiles = fs_init();
+    BOOT_OK("tar filesystem: %d files loaded", nfiles);
 
     //creating an initial idle process with pid 0. this is the root process of IcarusOS
-    idle_proc = create_proc(NULL, 0);
+    idle_proc = create_proc("idle", NULL, 0);
     idle_proc->pid = 0;
+    next_pid = 1;
     currently_running_proc = idle_proc;
+    BOOT_OK("idle process created (pid 0)");
 
-    create_proc(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
+#ifdef DEMO_TOUR
+    demo_tour();
+#endif
+
+    struct process *shell = create_proc("shell", _binary_shell_bin_start, (size_t) _binary_shell_bin_size);
+    BOOT_OK("shell process created (pid %d)", shell->pid);
+    BOOT_OK("entering user mode");
+    printf("\n");
 
     yield();
-    PANIC("switched to idle process");
-
-    for(;;) {__asm__ __volatile("wfi");}
+    printf("\nno runnable processes left\n");
+    halt();
 }
 
 __attribute__((section(".text.boot")))

@@ -43,6 +43,43 @@ int getcwd(char *buf, int len) {
     return syscall(SYS_GETCWD, (int) buf, len, 0);
 }
 
+void yield(void) {
+    syscall(SYS_YIELD, 0, 0, 0);
+}
+
+int spawn(const char *name) {
+    return syscall(SYS_SPAWN, (int) name, 0, 0);
+}
+
+int listfiles(int idx, char *name, int len) {
+    return syscall(SYS_LISTFILES, idx, (int) name, len);
+}
+
+int procinfo(int idx, struct procinfo *pi) {
+    return syscall(SYS_PROCINFO, idx, (int) pi, 0);
+}
+
+int sysinfo(struct sysinfo *si) {
+    return syscall(SYS_SYSINFO, (int) si, 0, 0);
+}
+
+uint32_t gettime(void) {
+    return syscall(SYS_TIME, 0, 0, 0);
+}
+
+__attribute__((noreturn)) void shutdown(void) {
+    syscall(SYS_SHUTDOWN, 0, 0, 0);
+    for(;;);
+}
+
+int kill(int pid) {
+    return syscall(SYS_KILL, pid, 0, 0);
+}
+
+int getpid(void) {
+    return syscall(SYS_GETPID, 0, 0, 0);
+}
+
 __attribute__((section(".text.start")))
 __attribute__((naked))
 void start(void) {

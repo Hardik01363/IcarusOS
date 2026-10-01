@@ -50,6 +50,7 @@ struct process {
     vaddr_t sp;
     uint32_t *page_table;
     char cwd[CWD_MAX]; //current working directory of the process
+    char name[16];
     uint8_t stack[STACK_SIZE]; //saves process state when context switching or handling trap/syscall
 };
 
@@ -64,6 +65,7 @@ struct process {
 //base virtual address of an application image. matches the starting address defined in user.ld
 #define USER_BASE 0x1000000
 #define SSTATUS_SPIE (1 << 5)
+#define SSTATUS_SPP  (1 << 8)
 #define SSTATUS_SUM  (1 << 18) //the SUM bit in csr register must be set so that super-mode programs can access pages from user mode (a RISC-V specification)
 
 #define SCAUSE_ECALL 8 //to check that if the scause of an exception is 8, it is a syscall and not an illegal use
@@ -148,8 +150,8 @@ struct virtio_blk_req {
 } __attribute__((packed));
 
 //defining filesystem structs and functions
-#define FILES_MAX_LOADED 2
-#define DISK_MAX_SIZE  align_up(sizeof(struct file) * FILES_MAX_LOADED, SECTOR_SIZE)
+#define FILES_MAX_LOADED 8
+#define DISK_MAX_SIZE (FILES_MAX_LOADED * (SECTOR_SIZE + FILE_DATA_MAX))
 
 struct tar_header {
     char name[100];
@@ -175,6 +177,6 @@ struct tar_header {
 struct file {
     bool in_use;
     char name[100];
-    char data[1024];
+    char data[FILE_DATA_MAX];
     size_t size;
 };

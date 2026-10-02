@@ -51,8 +51,8 @@ int spawn(const char *name) {
     return syscall(SYS_SPAWN, (int) name, 0, 0);
 }
 
-int listfiles(int idx, char *name, int len) {
-    return syscall(SYS_LISTFILES, idx, (int) name, len);
+int readdir(const char *path, int idx, char *name) {
+    return syscall(SYS_READDIR, (int) path, idx, (int) name);
 }
 
 int procinfo(int idx, struct procinfo *pi) {
@@ -78,6 +78,50 @@ int kill(int pid) {
 
 int getpid(void) {
     return syscall(SYS_GETPID, 0, 0, 0);
+}
+
+int appendfile(const char *path, const char *buf, int len) {
+    return syscall(SYS_APPENDFILE, (int) path, (int) buf, len);
+}
+
+int unlink(const char *path) {
+    return syscall(SYS_UNLINK, (int) path, 0, 0);
+}
+
+int mkdir(const char *path) {
+    return syscall(SYS_MKDIR, (int) path, 0, 0);
+}
+
+int chdir(const char *path) {
+    return syscall(SYS_CHDIR, (int) path, 0, 0);
+}
+
+int pipe_open(const char *name, int mode) {
+    return syscall(SYS_PIPE_OPEN, (int) name, mode, 0);
+}
+
+int pipe_write(int id, const char *buf, int len) {
+    return syscall(SYS_PIPE_WRITE, id, (int) buf, len);
+}
+
+int pipe_read(int id, char *buf, int len) {
+    return syscall(SYS_PIPE_READ, id, (int) buf, len);
+}
+
+int pipe_close(int id) {
+    return syscall(SYS_PIPE_CLOSE, id, 0, 0);
+}
+
+int reboot(void) {
+    return syscall(SYS_REBOOT, 0, 0, 0);
+}
+
+int poll_char(void) {
+    return syscall(SYS_POLLCHAR, 0, 0, 0);
+}
+
+uint32_t getdate(void) {
+    return syscall(SYS_DATE, 0, 0, 0);
 }
 
 __attribute__((section(".text.start")))

@@ -149,8 +149,24 @@ struct virtio_blk_req {
     uint8_t status;
 } __attribute__((packed));
 
+//page allocator, rtc and pipes
+#define FREE_RAM_PAGES 16384 //must match the 64MB of free ram in kernel.ld
+#define RTC_PADDR 0x101000
+#define PIPES_MAX 4
+#define PIPE_BUF 256
+
+struct pipe {
+    bool used;
+    bool closed;
+    int wpid; //pid of the process that opened the write end, so the pipe can be closed if it dies
+    char name[16];
+    int head;
+    int count;
+    char buf[PIPE_BUF];
+};
+
 //defining filesystem structs and functions
-#define FILES_MAX_LOADED 8
+#define FILES_MAX_LOADED 16
 #define DISK_MAX_SIZE (FILES_MAX_LOADED * (SECTOR_SIZE + FILE_DATA_MAX))
 
 struct tar_header {
@@ -176,6 +192,7 @@ struct tar_header {
 
 struct file {
     bool in_use;
+    bool is_dir;
     char name[100];
     char data[FILE_DATA_MAX];
     size_t size;

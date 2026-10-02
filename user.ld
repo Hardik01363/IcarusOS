@@ -23,8 +23,9 @@ SECTIONS {
     .bss : ALIGN(4) {
         *(.bss .bss.* .sbss .sbss.*);
 
-        . = ALIGN(16);
-        . += 64 * 1024; /* 64KB */
+        . = ALIGN(4096);
+        . += 4096; /* guard page: the kernel leaves this page unmapped */
+        . += 64 * 1024; /* 64KB stack (USER_STACK_SIZE in common.h) */
         __stack_top = .;
 
        ASSERT(. < 0x1800000, "executable too large");

@@ -1191,12 +1191,25 @@ void handle_trap(struct trap_frame *f) {
 
 void splash(void) {
     printf("\033[2J\033[H\033[1;33m\n");
-    printf("            \\   |   /\n");
-    printf("         ~~~ '-.:::.-' ~~~\n");
-    printf("      <=====( .:::::. )=====>      I c a r u s O S\n");
-    printf("         ~~~ '-:::::-' ~~~         a tiny RISC-V OS that flew\n");
-    printf("            /   |   \\              too close to the sun\n");
-    printf("\033[0m\n");
+    printf("\\            |            / \n");
+    printf("                                                ' .       |       . '\n");            
+    printf("      ICARUS OS                            -        -   .---.   -        -\n");
+    printf("please put up with my bad drawing (^.^)        '  .   /:::::::\\   .  '\n");
+    printf("took me an hour for this masterpiece :)             - \\:::::::/ -          -\n");
+    printf("                                               .  '   / '---' \\   '  .\n");
+    printf("                                           -        -           -        -\n");
+    printf("                                                . '       |       ' .\n");
+    printf("                                              /            |            \\   \n");
+    printf("\n");
+    printf("                                                               *   .  ,\n");
+    printf("                                                               ,    *\n");
+    printf("                               *                               .    *\n");
+    printf("         _/\\_            _/\\_                     .            .        ,\n");
+    printf("        //  \\_  \\O/  _//  \\                             *       .\n");
+    printf("        ||    |   |   |    ||                       .       ,\n");
+    printf("         \\   \\  / \\  /   //                 *                 .\n");
+    printf("          \\   \\ \\ / /   //                                  *\n");
+    printf("           `    `   `    `                        .\n");
     sleep_ms(SPLASH_MS * 3);
 }
 
